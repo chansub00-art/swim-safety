@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>수영 안전 알림</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a1628;
+    color: #fff;
+    font-family: 'Noto Sans KR', sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #header {
+    background: #0d2040;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 2px solid #1a4a8a;
+    z-index: 10;
+  }
+
+  #header h1 {
+    font-size: 16px;
+    font-weight: 700;
+    color: #4fc3f7;
+    letter-spacing: 1px;
+  }
+
+  #status-badge {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    background: #1b5e20;
+    color: #69f0ae;
+    transition: all 0.3s;
+  }
+
+  #status-badge.alert {
+    background: #b71c1c;
+    color: #ff8a80;
+    animation: pulse 0.5s infinite alternate;
+  }
+
+  @keyframes pulse {
+    from { transform: scale(1); }
+    to { transform: scale(1.08); }
+  }
+
+  #camera-container {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    background: #000;
+  }
+
+  #video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  #canvas { display: none; }
+
+  /* 위험 구역 오버레이 */
+  #danger-zone {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 25%;
+    border-bottom: 3px dashed rgba(255, 80, 80, 0.7);
+    background: rgba(255, 0, 0, 0.08);
+    pointer-events: none;
+    transition: background 0.3s;
+  }
+
+  #danger-zone.triggered {
+    background: rgba(255, 0, 0, 0.3);
+  }
+
+  #danger-label {
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(180, 0, 0, 0.8);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 10px;
+    white-space: nowrap;
+  }
+
+  /* 감지 박스 */
+  #detect-box {
+    position: absolute;
+    border: 3px solid #ffeb3b;
+    border-radius: 50%;
+    background: rgba(255, 235, 59, 0.15);
+    display: none;
+    pointer-events: none;
+    transition: all 0.1s;
+  }
+
+  /* 경고 오버레이 */
+  #alert-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(255, 0, 0, 0.25);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  #alert-overlay.show {
+    display: flex;
+    animation: flash 0.4s infinite alternate;
+  }
+
+  @keyframes flash {
+    from { background: rgba(255,0,0,0.15); }
+    to { background: rgba(255,0,0,0.40); }
+  }
+
+  #alert-text {
+    background: rgba(0,0,0,0.75);
+    color: #ff5252;
+    font-size: 26px;
+    font-weight: 900;
+    padding: 14px 28px;
+    border-radius: 12px;
+    border: 2px solid #ff5252;
+    text-align: center;
+    line-height: 1.4;
+  }
+
+  /* 하단 컨트롤 */
+  #bottom-panel {
+    background: #0d2040;
+    padding: 12px 16px;
+    border-top: 2px solid #1a4a8a;
+  }
+
+  #info-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+    justify-content: center;
+  }
+
+  .info-chip {
+    background: #1a3a6a;
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-size: 11px;
+    color: #90caf9;
+    text-align: center;
+  }
+
+  .info-chip span {
+    display: block;
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    margin-top: 2px;
+  }
+
+  #btn-start {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 10px;
+    font-size: 17px;
+    font-weight: 800;
+    cursor: pointer;
+    background: linear-gradient(135deg, #1565c0, #0288d1);
+    color: #fff;
+    letter-spacing: 1px;
+    transition: all 0.2s;
+  }
+
+  #btn-start:active { transform: scale(0.97); }
+
+  #btn-start.running {
+    background: linear-gradient(135deg, #b71c1c, #c62828);
+  }
+
+  /* 설정 패널 */
+  #settings-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(0,0,0,0.5);
+    border: 1px solid #4fc3f7;
+    color: #4fc3f7;
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    z-index: 20;
+  }
+
+  #settings-panel {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(10, 22, 40, 0.97);
+    z-index: 30;
+    display: none;
+    flex-direction: column;
+    padding: 20px;
+    overflow-y: auto;
+  }
+
+  #settings-panel.show { display: flex; }
+
+  #settings-panel h2 {
+    color: #4fc3f7;
+    font-size: 18px;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #1a4a8a;
+  }
+
+  .setting-group {
+    margin-bottom: 20px;
+  }
+
+  .setting-group label {
+    display: block;
+    color: #90caf9;
+    font-size: 13px;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+
+  .setting-group input[type=range] {
+    width: 100%;
+    accent-color: #4fc3f7;
+  }
+
+  .setting-group input[type=text] {
+    width: 100%;
+    background: #1a3a6a;
+    border: 1px solid #4fc3f7;
+    border-radius: 6px;
+    color: #fff;
+    padding: 8px 10px;
+    font-size: 14px;
+  }
+
+  .color-presets {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+
+  .color-btn {
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 2px solid transparent;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    color: #fff;
+  }
+
+  .color-btn.active { border-color: #fff; }
+
+  #close-settings {
+    margin-top: 10px;
+    padding: 12px;
+    background: #1565c0;
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .val-display {
+    float: right;
+    color: #fff;
+    font-weight: 700;
+  }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>🏊 수영 안전 알림</h1>
+  <div id="status-badge">대기중</div>
+</div>
+
+<div id="camera-container">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+
+  <div id="danger-zone">
+    <div id="danger-label">⚠ 경고 구역 (벽 근처)</div>
+  </div>
+
+  <div id="detect-box"></div>
+  <div id="alert-overlay">
+    <div id="alert-text">⚠️ 벽이 가까워요<br>조심하세요!</div>
+  </div>
+
+  <button id="settings-btn" onclick="toggleSettings()">⚙ 설정</button>
+
+  <!-- 설정 패널 -->
+  <div id="settings-panel">
+    <h2>⚙ 감지 설정</h2>
+
+    <div class="setting-group">
+      <label>🎨 수영모 색상 선택</label>
+      <div class="color-presets" id="color-presets"></div>
+    </div>
+
+    <div class="setting-group">
+      <label>📢 음성 안내 멘트</label>
+      <input type="text" id="tts-text" value="벽이 가까워요, 조심하세요">
+    </div>
+
+    <div class="setting-group">
+      <label>
+        ⚠ 경고 구역 크기 (화면 상단 비율)
+        <span class="val-display" id="zone-val">25%</span>
+      </label>
+      <input type="range" id="zone-slider" min="10" max="50" value="25"
+        oninput="updateZone(this.value)">
+    </div>
+
+    <div class="setting-group">
+      <label>
+        ⏱ 알림 간격 (초)
+        <span class="val-display" id="interval-val">4초</span>
+      </label>
+      <input type="range" id="interval-slider" min="2" max="10" value="4"
+        oninput="updateInterval(this.value)">
+    </div>
+
+    <div class="setting-group">
+      <label>
+        🔊 음성 속도
+        <span class="val-display" id="rate-val">보통</span>
+      </label>
+      <input type="range" id="rate-slider" min="5" max="15" value="9"
+        oninput="updateRate(this.value)">
+    </div>
+
+    <button id="close-settings" onclick="toggleSettings()">✅ 저장하고 닫기</button>
+  </div>
+</div>
+
+<div id="bottom-panel">
+  <div id="info-row">
+    <div class="info-chip">감지 횟수<span id="detect-count">0</span></div>
+    <div class="info-chip">경고 발생<span id="alert-count">0</span></div>
+    <div class="info-chip">감지 색상<span id="current-color">빨강+회색</span></div>
+  </div>
+  <button id="btn-start" onclick="toggleDetection()">▶ 감지 시작</button>
+</div>
+
+<script>
+// ──────────────────────────────────────────────
+// 색상 설정 (HSV 범위)
+// ──────────────────────────────────────────────
+const COLOR_PROFILES = {
+  red: {
+    label: '빨간색', color: '#e53935',
+    // HSV: H(0~10 또는 170~180), S>100, V>60
+    ranges: [
+      { hMin:0,   hMax:12,  sMin:100, sMax:255, vMin:60, vMax:255 },
+      { hMin:168, hMax:180, sMin:100, sMax:255, vMin:60, vMax:255 }
+    ]
+  },
+  gray: {
+    label: '회색', color: '#757575',
+    // HSV: S<60, V:60~200
+    ranges: [
+      { hMin:0, hMax:180, sMin:0, sMax:60, vMin:60, vMax:210 }
+    ]
+  },
+  blue: {
+    label: '파란색', color: '#1e88e5',
+    ranges: [
+      { hMin:100, hMax:130, sMin:80, sMax:255, vMin:50, vMax:255 }
+    ]
+  },
+  yellow: {
+    label: '노란색', color: '#fdd835',
+    ranges: [
+      { hMin:22, hMax:38, sMin:100, sMax:255, vMin:100, vMax:255 }
+    ]
+  },
+  black: {
+    label: '검정색', color: '#424242',
+    ranges: [
+      { hMin:0, hMax:180, sMin:0, sMax:255, vMin:0, vMax:50 }
+    ]
+  },
+  white: {
+    label: '흰색', color: '#e0e0e0',
+    ranges: [
+      { hMin:0, hMax:180, sMin:0, sMax:40, vMin:200, vMax:255 }
+    ]
+  }
+};
+
+// ──────────────────────────────────────────────
+// 상태 변수
+// ──────────────────────────────────────────────
+let selectedColors = ['red', 'gray'];
+let isRunning = false;
+let detectCount = 0;
+let alertCount = 0;
+let lastAlertTime = 0;
+let alertInterval = 4000;
+let ttsRate = 0.9;
+let zoneRatio = 0.25;
+let animFrame = null;
+
+const video    = document.getElementById('video');
+const canvas   = document.getElementById('canvas');
+const ctx      = canvas.getContext('2d', { willReadFrequently: true });
+const detectBox     = document.getElementById('detect-box');
+const alertOverlay  = document.getElementById('alert-overlay');
+const statusBadge   = document.getElementById('status-badge');
+const dangerZone    = document.getElementById('danger-zone');
+
+// ──────────────────────────────────────────────
+// 색상 프리셋 버튼 생성
+// ──────────────────────────────────────────────
+function buildColorButtons() {
+  const container = document.getElementById('color-presets');
+  container.innerHTML = '';
+  Object.entries(COLOR_PROFILES).forEach(([key, prof]) => {
+    const btn = document.createElement('button');
+    btn.className = 'color-btn' + (selectedColors.includes(key) ? ' active' : '');
+    btn.style.background = prof.color;
+    btn.textContent = prof.label;
+    btn.onclick = () => {
+      if (selectedColors.includes(key)) {
+        if (selectedColors.length > 1) selectedColors = selectedColors.filter(c => c !== key);
+      } else {
+        selectedColors.push(key);
+      }
+      buildColorButtons();
+      updateColorLabel();
+    };
+    container.appendChild(btn);
+  });
+}
+
+function updateColorLabel() {
+  document.getElementById('current-color').textContent =
+    selectedColors.map(k => COLOR_PROFILES[k].label).join('+');
+}
+
+// ──────────────────────────────────────────────
+// 카메라 시작
+// ──────────────────────────────────────────────
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
+    video.srcObject = stream;
+    await video.play();
+  } catch(e) {
+    alert('카메라 권한을 허용해 주세요.\n설정 > 브라우저 > 카메라 권한 허용');
+  }
+}
+
+// ──────────────────────────────────────────────
+// RGB → HSV 변환
+// ──────────────────────────────────────────────
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r,g,b), min = Math.min(r,g,b);
+  const d = max - min;
+  let h = 0, s = max === 0 ? 0 : d / max, v = max;
+  if (d !== 0) {
+    switch(max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+      case g: h = ((b - r) / d + 2) / 6; break;
+      case b: h = ((r - g) / d + 4) / 6; break;
+    }
+  }
+  return [h * 180, s * 255, v * 255];
+}
+
+// ──────────────────────────────────────────────
+// 색상 매칭
+// ──────────────────────────────────────────────
+function matchesSelectedColor(r, g, b) {
+  const [h, s, v] = rgbToHsv(r, g, b);
+  for (const key of selectedColors) {
+    for (const range of COLOR_PROFILES[key].ranges) {
+      if (h >= range.hMin && h <= range.hMax &&
+          s >= range.sMin && s <= range.sMax &&
+          v >= range.vMin && v <= range.vMax) return true;
+    }
+  }
+  return false;
+}
+
+// ──────────────────────────────────────────────
+// 메인 감지 루프
+// ──────────────────────────────────────────────
+function detect() {
+  if (!isRunning) return;
+
+  const W = video.videoWidth  || 640;
+  const H = video.videoHeight || 480;
+  canvas.width  = W;
+  canvas.height = H;
+  ctx.drawImage(video, 0, 0, W, H);
+
+  const zoneH = Math.floor(H * zoneRatio);  // 경고 구역 높이 (상단)
+  const step  = 6; // 픽셀 샘플링 간격
+
+  // 전체 영역에서 수영모 색상 픽셀 탐색
+  const data = ctx.getImageData(0, 0, W, H).data;
+
+  let bestX = -1, bestY = -1;
+  let maxScore = 0;
+
+  // 그리드 방식으로 색상 밀집 영역 탐색
+  const cellSize = 40;
+  for (let cy = 0; cy < H; cy += cellSize) {
+    for (let cx = 0; cx < W; cx += cellSize) {
+      let score = 0;
+      const x2 = Math.min(cx + cellSize, W);
+      const y2 = Math.min(cy + cellSize, H);
+      for (let y = cy; y < y2; y += step) {
+        for (let x = cx; x < x2; x += step) {
+          const idx = (y * W + x) * 4;
+          if (matchesSelectedColor(data[idx], data[idx+1], data[idx+2])) score++;
+        }
+      }
+      if (score > maxScore) {
+        maxScore = score;
+        bestX = cx + cellSize/2;
+        bestY = cy + cellSize/2;
+      }
+    }
+  }
+
+  // 감지 결과 처리
+  const threshold = 3;
+  if (maxScore >= threshold) {
+    detectCount++;
+    document.getElementById('detect-count').textContent = detectCount;
+
+    // 화면에 감지 박스 표시
+    const vw = video.clientWidth, vh = video.clientHeight;
+    const scaleX = vw / W, scaleY = vh / H;
+    const boxSize = cellSize * 1.6;
+    detectBox.style.display = 'block';
+    detectBox.style.left   = (bestX * scaleX - boxSize/2) + 'px';
+    detectBox.style.top    = (bestY * scaleY - boxSize/2) + 'px';
+    detectBox.style.width  = boxSize + 'px';
+    detectBox.style.height = boxSize + 'px';
+
+    // 경고 구역(상단) 진입 여부 확인
+    if (bestY <= zoneH) {
+      dangerZone.classList.add('triggered');
+      const now = Date.now();
+      if (now - lastAlertTime > alertInterval) {
+        triggerAlert();
+        lastAlertTime = now;
+      }
+    } else {
+      dangerZone.classList.remove('triggered');
+      alertOverlay.classList.remove('show');
+    }
+  } else {
+    detectBox.style.display = 'none';
+    dangerZone.classList.remove('triggered');
+    alertOverlay.classList.remove('show');
+  }
+
+  animFrame = requestAnimationFrame(detect);
+}
+
+// ──────────────────────────────────────────────
+// 경고 발생
+// ──────────────────────────────────────────────
+function triggerAlert() {
+  alertCount++;
+  document.getElementById('alert-count').textContent = alertCount;
+
+  statusBadge.textContent = '⚠ 경고!';
+  statusBadge.classList.add('alert');
+  alertOverlay.classList.add('show');
+
+  // TTS 음성 출력
+  const msg = document.getElementById('tts-text').value || '벽이 가까워요, 조심하세요';
+  const utt = new SpeechSynthesisUtterance(msg);
+  utt.lang  = 'ko-KR';
+  utt.rate  = ttsRate;
+  utt.volume = 1.0;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(utt);
+
+  setTimeout(() => {
+    statusBadge.textContent = '● 감지중';
+    statusBadge.classList.remove('alert');
+    alertOverlay.classList.remove('show');
+  }, 2500);
+}
+
+// ──────────────────────────────────────────────
+// 감지 시작/정지
+// ──────────────────────────────────────────────
+function toggleDetection() {
+  const btn = document.getElementById('btn-start');
+  if (!isRunning) {
+    isRunning = true;
+    btn.textContent = '⏹ 감지 중지';
+    btn.classList.add('running');
+    statusBadge.textContent = '● 감지중';
+    detect();
+  } else {
+    isRunning = false;
+    if (animFrame) cancelAnimationFrame(animFrame);
+    btn.textContent = '▶ 감지 시작';
+    btn.classList.remove('running');
+    statusBadge.textContent = '대기중';
+    detectBox.style.display = 'none';
+    alertOverlay.classList.remove('show');
+    dangerZone.classList.remove('triggered');
+  }
+}
+
+// ──────────────────────────────────────────────
+// 설정 슬라이더
+// ──────────────────────────────────────────────
+function updateZone(v) {
+  zoneRatio = v / 100;
+  document.getElementById('zone-val').textContent = v + '%';
+  dangerZone.style.height = v + '%';
+}
+
+function updateInterval(v) {
+  alertInterval = v * 1000;
+  document.getElementById('interval-val').textContent = v + '초';
+}
+
+function updateRate(v) {
+  ttsRate = v / 10;
+  const labels = {5:'느리게',9:'보통',15:'빠르게'};
+  document.getElementById('rate-val').textContent =
+    v <= 7 ? '느리게' : v <= 11 ? '보통' : '빠르게';
+}
+
+function toggleSettings() {
+  document.getElementById('settings-panel').classList.toggle('show');
+}
+
+// ──────────────────────────────────────────────
+// 초기화
+// ──────────────────────────────────────────────
+buildColorButtons();
+updateColorLabel();
+startCamera();
+</script>
+</body>
+</html>
