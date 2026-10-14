@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>수영 안전 알림</title>
+<title>수영 안전 알림 - 벽면 근접 실습생 우선 탐지</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -71,7 +71,7 @@
 
   #canvas { display: none; }
 
-  /* 위험 구역 오버레이 (하단 배치로 수정) */
+  /* 경고 구역 (하단 배치) */
   #danger-zone {
     position: absolute;
     bottom: 0;
@@ -301,7 +301,7 @@
 <body>
 
 <div id="header">
-  <h1>🏊 수영 안전 알림</h1>
+  <h1>🏊 수영 안전 알림 (벽면 근접 우선)</h1>
   <div id="status-badge">대기중</div>
 </div>
 
@@ -309,7 +309,6 @@
   <video id="video" autoplay playsinline muted></video>
   <canvas id="canvas"></canvas>
 
-  <!-- 하단 경고 구역 -->
   <div id="danger-zone">
     <div id="danger-label">⚠ 경고 구역 (벽 근처)</div>
   </div>
@@ -321,12 +320,11 @@
 
   <button id="settings-btn" onclick="toggleSettings()">⚙ 설정</button>
 
-  <!-- 설정 패널 -->
   <div id="settings-panel">
     <h2>⚙ 감지 설정</h2>
 
     <div class="setting-group">
-      <label>🎨 수영모 색상 선택</label>
+      <label>🎨 탐지 색상 선택 (구명조끼 주황/빨강 추천)</label>
       <div class="color-presets" id="color-presets"></div>
     </div>
 
@@ -370,53 +368,47 @@
   <div id="info-row">
     <div class="info-chip">감지 횟수<span id="detect-count">0</span></div>
     <div class="info-chip">경고 발생<span id="alert-count">0</span></div>
-    <div class="info-chip">감지 색상<span id="current-color">빨강+회색</span></div>
+    <div class="info-chip">감지 색상<span id="current-color">주황색+빨간색</span></div>
   </div>
   <button id="btn-start" onclick="toggleDetection()">▶ 감지 시작</button>
 </div>
 
 <script>
 const COLOR_PROFILES = {
+  orange: {
+    label: '주황색', color: '#ff9800',
+    ranges: [
+      { hMin: 10, hMax: 28, sMin: 70, sMax: 255, vMin: 60, vMax: 255 }
+    ]
+  },
   red: {
     label: '빨간색', color: '#e53935',
     ranges: [
-      { hMin:0,  hMax:12,  sMin:100, sMax:255, vMin:60, vMax:255 },
-      { hMin:168, hMax:180, sMin:100, sMax:255, vMin:60, vMax:255 }
-    ]
-  },
-  gray: {
-    label: '회색', color: '#757575',
-    ranges: [
-      { hMin:0, hMax:180, sMin:0, sMax:60, vMin:60, vMax:210 }
-    ]
-  },
-  blue: {
-    label: '파란색', color: '#1e88e5',
-    ranges: [
-      { hMin:100, hMax:130, sMin:80, sMax:255, vMin:50, vMax:255 }
+      { hMin: 0,  hMax: 12,  sMin: 70, sMax: 255, vMin: 50, vMax: 255 },
+      { hMin: 165, hMax: 180, sMin: 70, sMax: 255, vMin: 50, vMax: 255 }
     ]
   },
   yellow: {
     label: '노란색', color: '#fdd835',
     ranges: [
-      { hMin:22, hMax:38, sMin:100, sMax:255, vMin:100, vMax:255 }
+      { hMin: 20, hMax: 38, sMin: 80, sMax: 255, vMin: 80, vMax: 255 }
+    ]
+  },
+  gray: {
+    label: '회색', color: '#757575',
+    ranges: [
+      { hMin: 0, hMax: 180, sMin: 0, sMax: 50, vMin: 60, vMax: 220 }
     ]
   },
   black: {
     label: '검정색', color: '#424242',
     ranges: [
-      { hMin:0, hMax:180, sMin:0, sMax:255, vMin:0, vMax:50 }
-    ]
-  },
-  white: {
-    label: '흰색', color: '#e0e0e0',
-    ranges: [
-      { hMin:0, hMax:180, sMin:0, sMax:40, vMin:200, vMax:255 }
+      { hMin: 0, hMax: 180, sMin: 0, sMax: 255, vMin: 0, vMax: 45 }
     ]
   }
 };
 
-let selectedColors = ['red', 'gray'];
+let selectedColors = ['orange', 'red'];
 let isRunning = false;
 let detectCount = 0;
 let alertCount = 0;
@@ -508,38 +500,60 @@ function detect() {
   canvas.height = H;
   ctx.drawImage(video, 0, 0, W, H);
 
-  // 경고 구역 시작선 (하단 기준 높이 계산)
+  // 저조도 보정: 어두운 곳에서도 픽셀 밝기 향상
+  let imgData = ctx.getImageData(0, 0, W, H);
+  let data = imgData.data;
+  
+  for (let i = 0; i < data.length; i += 4) {
+    let r = data[i], g = data[i+1], b = data[i+2];
+    if (r < 100 && g < 100 && b < 150) {
+      data[i]   = Math.min(255, r * 1.2);
+      data[i+1] = Math.min(255, g * 1.2);
+      data[i+2] = Math.min(255, b * 1.3);
+    }
+  }
+
   const zoneH = Math.floor(H * zoneRatio);
   const triggerY = H - zoneH; 
-  const step  = 6;
-
-  const data = ctx.getImageData(0, 0, W, H).data;
+  const step = 8;
 
   let bestX = -1, bestY = -1;
-  let maxScore = 0;
+  let maxPriorityScore = 0; // 벽면 근접 가중치가 포함된 최고 점수 추적
+  const cellSize = 45;
 
-  const cellSize = 40;
   for (let cy = 0; cy < H; cy += cellSize) {
     for (let cx = 0; cx < W; cx += cellSize) {
-      let score = 0;
+      let rawScore = 0;
       const x2 = Math.min(cx + cellSize, W);
       const y2 = Math.min(cy + cellSize, H);
+      
       for (let y = cy; y < y2; y += step) {
         for (let x = cx; x < x2; x += step) {
           const idx = (y * W + x) * 4;
-          if (matchesSelectedColor(data[idx], data[idx+1], data[idx+2])) score++;
+          if (matchesSelectedColor(data[idx], data[idx+1], data[idx+2])) {
+            rawScore++;
+          }
         }
       }
-      if (score > maxScore) {
-        maxScore = score;
-        bestX = cx + cellSize/2;
-        bestY = cy + cellSize/2;
+
+      if (rawScore > 0) {
+        // [핵심 로직] 화면 아래쪽(벽에 가까울수록)에 있는 후보에게 가산점(Weight) 부여
+        // cy가 H에 가까울수록(아래쪽일수록) 가중치 배수가 커집니다.
+        const positionWeight = 1.0 + (cy / H) * 2.5; 
+        const priorityScore = rawScore * positionWeight;
+
+        if (priorityScore > maxPriorityScore) {
+          maxPriorityScore = priorityScore;
+          bestX = cx + cellSize / 2;
+          bestY = cy + cellSize / 2;
+        }
       }
     }
   }
 
-  const threshold = 3;
-  if (maxScore >= threshold) {
+  const threshold = 4;
+  // 가중치가 반영된 최종 스코어로 판단 (기존 rawScore 대신 안전장치 적용)
+  if (maxPriorityScore >= threshold) {
     detectCount++;
     document.getElementById('detect-count').textContent = detectCount;
 
@@ -552,7 +566,7 @@ function detect() {
     detectBox.style.width   = boxSize + 'px';
     detectBox.style.height  = boxSize + 'px';
 
-    // 하단 경고 구역 진입 여부 확인 (bestY가 하단 한계선 이상일 때)
+    // 하단 경고 구역 진입 확인
     if (bestY >= triggerY) {
       dangerZone.classList.add('triggered');
       const now = Date.now();
