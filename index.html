@@ -71,14 +71,14 @@
 
   #canvas { display: none; }
 
-  /* 위험 구역 오버레이 */
+  /* 위험 구역 오버레이 (하단 배치로 수정) */
   #danger-zone {
     position: absolute;
-    top: 0;
+    bottom: 0;
     left: 0;
     width: 100%;
     height: 25%;
-    border-bottom: 3px dashed rgba(255, 80, 80, 0.7);
+    border-top: 3px dashed rgba(255, 80, 80, 0.7);
     background: rgba(255, 0, 0, 0.08);
     pointer-events: none;
     transition: background 0.3s;
@@ -90,7 +90,7 @@
 
   #danger-label {
     position: absolute;
-    top: 6px;
+    bottom: 6px;
     left: 50%;
     transform: translateX(-50%);
     background: rgba(180, 0, 0, 0.8);
@@ -309,6 +309,7 @@
   <video id="video" autoplay playsinline muted></video>
   <canvas id="canvas"></canvas>
 
+  <!-- 하단 경고 구역 -->
   <div id="danger-zone">
     <div id="danger-label">⚠ 경고 구역 (벽 근처)</div>
   </div>
@@ -336,7 +337,7 @@
 
     <div class="setting-group">
       <label>
-        ⚠ 경고 구역 크기 (화면 상단 비율)
+        ⚠ 경고 구역 크기 (화면 하단 비율)
         <span class="val-display" id="zone-val">25%</span>
       </label>
       <input type="range" id="zone-slider" min="10" max="50" value="25"
@@ -375,21 +376,16 @@
 </div>
 
 <script>
-// ──────────────────────────────────────────────
-// 색상 설정 (HSV 범위)
-// ──────────────────────────────────────────────
 const COLOR_PROFILES = {
   red: {
     label: '빨간색', color: '#e53935',
-    // HSV: H(0~10 또는 170~180), S>100, V>60
     ranges: [
-      { hMin:0,   hMax:12,  sMin:100, sMax:255, vMin:60, vMax:255 },
+      { hMin:0,  hMax:12,  sMin:100, sMax:255, vMin:60, vMax:255 },
       { hMin:168, hMax:180, sMin:100, sMax:255, vMin:60, vMax:255 }
     ]
   },
   gray: {
     label: '회색', color: '#757575',
-    // HSV: S<60, V:60~200
     ranges: [
       { hMin:0, hMax:180, sMin:0, sMax:60, vMin:60, vMax:210 }
     ]
@@ -420,9 +416,6 @@ const COLOR_PROFILES = {
   }
 };
 
-// ──────────────────────────────────────────────
-// 상태 변수
-// ──────────────────────────────────────────────
 let selectedColors = ['red', 'gray'];
 let isRunning = false;
 let detectCount = 0;
@@ -433,17 +426,14 @@ let ttsRate = 0.9;
 let zoneRatio = 0.25;
 let animFrame = null;
 
-const video    = document.getElementById('video');
-const canvas   = document.getElementById('canvas');
-const ctx      = canvas.getContext('2d', { willReadFrequently: true });
+const video     = document.getElementById('video');
+const canvas    = document.getElementById('canvas');
+const ctx       = canvas.getContext('2d', { willReadFrequently: true });
 const detectBox     = document.getElementById('detect-box');
 const alertOverlay  = document.getElementById('alert-overlay');
 const statusBadge   = document.getElementById('status-badge');
 const dangerZone    = document.getElementById('danger-zone');
 
-// ──────────────────────────────────────────────
-// 색상 프리셋 버튼 생성
-// ──────────────────────────────────────────────
 function buildColorButtons() {
   const container = document.getElementById('color-presets');
   container.innerHTML = '';
@@ -470,9 +460,6 @@ function updateColorLabel() {
     selectedColors.map(k => COLOR_PROFILES[k].label).join('+');
 }
 
-// ──────────────────────────────────────────────
-// 카메라 시작
-// ──────────────────────────────────────────────
 async function startCamera() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -485,9 +472,6 @@ async function startCamera() {
   }
 }
 
-// ──────────────────────────────────────────────
-// RGB → HSV 변환
-// ──────────────────────────────────────────────
 function rgbToHsv(r, g, b) {
   r /= 255; g /= 255; b /= 255;
   const max = Math.max(r,g,b), min = Math.min(r,g,b);
@@ -503,9 +487,6 @@ function rgbToHsv(r, g, b) {
   return [h * 180, s * 255, v * 255];
 }
 
-// ──────────────────────────────────────────────
-// 색상 매칭
-// ──────────────────────────────────────────────
 function matchesSelectedColor(r, g, b) {
   const [h, s, v] = rgbToHsv(r, g, b);
   for (const key of selectedColors) {
@@ -518,9 +499,6 @@ function matchesSelectedColor(r, g, b) {
   return false;
 }
 
-// ──────────────────────────────────────────────
-// 메인 감지 루프
-// ──────────────────────────────────────────────
 function detect() {
   if (!isRunning) return;
 
@@ -530,16 +508,16 @@ function detect() {
   canvas.height = H;
   ctx.drawImage(video, 0, 0, W, H);
 
-  const zoneH = Math.floor(H * zoneRatio);  // 경고 구역 높이 (상단)
-  const step  = 6; // 픽셀 샘플링 간격
+  // 경고 구역 시작선 (하단 기준 높이 계산)
+  const zoneH = Math.floor(H * zoneRatio);
+  const triggerY = H - zoneH; 
+  const step  = 6;
 
-  // 전체 영역에서 수영모 색상 픽셀 탐색
   const data = ctx.getImageData(0, 0, W, H).data;
 
   let bestX = -1, bestY = -1;
   let maxScore = 0;
 
-  // 그리드 방식으로 색상 밀집 영역 탐색
   const cellSize = 40;
   for (let cy = 0; cy < H; cy += cellSize) {
     for (let cx = 0; cx < W; cx += cellSize) {
@@ -560,24 +538,22 @@ function detect() {
     }
   }
 
-  // 감지 결과 처리
   const threshold = 3;
   if (maxScore >= threshold) {
     detectCount++;
     document.getElementById('detect-count').textContent = detectCount;
 
-    // 화면에 감지 박스 표시
     const vw = video.clientWidth, vh = video.clientHeight;
     const scaleX = vw / W, scaleY = vh / H;
     const boxSize = cellSize * 1.6;
     detectBox.style.display = 'block';
-    detectBox.style.left   = (bestX * scaleX - boxSize/2) + 'px';
-    detectBox.style.top    = (bestY * scaleY - boxSize/2) + 'px';
-    detectBox.style.width  = boxSize + 'px';
-    detectBox.style.height = boxSize + 'px';
+    detectBox.style.left    = (bestX * scaleX - boxSize/2) + 'px';
+    detectBox.style.top     = (bestY * scaleY - boxSize/2) + 'px';
+    detectBox.style.width   = boxSize + 'px';
+    detectBox.style.height  = boxSize + 'px';
 
-    // 경고 구역(상단) 진입 여부 확인
-    if (bestY <= zoneH) {
+    // 하단 경고 구역 진입 여부 확인 (bestY가 하단 한계선 이상일 때)
+    if (bestY >= triggerY) {
       dangerZone.classList.add('triggered');
       const now = Date.now();
       if (now - lastAlertTime > alertInterval) {
@@ -597,9 +573,6 @@ function detect() {
   animFrame = requestAnimationFrame(detect);
 }
 
-// ──────────────────────────────────────────────
-// 경고 발생
-// ──────────────────────────────────────────────
 function triggerAlert() {
   alertCount++;
   document.getElementById('alert-count').textContent = alertCount;
@@ -608,7 +581,6 @@ function triggerAlert() {
   statusBadge.classList.add('alert');
   alertOverlay.classList.add('show');
 
-  // TTS 음성 출력
   const msg = document.getElementById('tts-text').value || '벽이 가까워요, 조심하세요';
   const utt = new SpeechSynthesisUtterance(msg);
   utt.lang  = 'ko-KR';
@@ -624,9 +596,6 @@ function triggerAlert() {
   }, 2500);
 }
 
-// ──────────────────────────────────────────────
-// 감지 시작/정지
-// ──────────────────────────────────────────────
 function toggleDetection() {
   const btn = document.getElementById('btn-start');
   if (!isRunning) {
@@ -647,9 +616,6 @@ function toggleDetection() {
   }
 }
 
-// ──────────────────────────────────────────────
-// 설정 슬라이더
-// ──────────────────────────────────────────────
 function updateZone(v) {
   zoneRatio = v / 100;
   document.getElementById('zone-val').textContent = v + '%';
@@ -663,7 +629,6 @@ function updateInterval(v) {
 
 function updateRate(v) {
   ttsRate = v / 10;
-  const labels = {5:'느리게',9:'보통',15:'빠르게'};
   document.getElementById('rate-val').textContent =
     v <= 7 ? '느리게' : v <= 11 ? '보통' : '빠르게';
 }
@@ -672,9 +637,6 @@ function toggleSettings() {
   document.getElementById('settings-panel').classList.toggle('show');
 }
 
-// ──────────────────────────────────────────────
-// 초기화
-// ──────────────────────────────────────────────
 buildColorButtons();
 updateColorLabel();
 startCamera();
